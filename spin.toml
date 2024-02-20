@@ -1,0 +1,27 @@
+spin_manifest_version = 2
+
+[application]
+name = "code-social"
+version = "0.1.0"
+authors = ["ārXāngēl <lavrenyk@gmail.com>"]
+description = "Core of the application"
+
+[variables]
+db_user = { default = "lavrenyk" }
+db_pswd = { default = "kakeepoo" }
+db_host = { default = "127.0.0.1" }
+db_name = { default = "social" }
+
+[[trigger.http]]
+route = "/api/profile/..."
+component = "profile-api"
+
+[component.profile-api]
+source = "profile-api/target/wasm32-wasi/release/profile_api.wasm"
+allowed_outbound_hosts = ["mysql://127.0.0.1:3306"]
+[component.profile-api.variables]
+db_url = "mysql://{{db_user}}:{{db_pswd}}@{{db_host}}/{{db_name}}"
+[component.profile-api.build]
+command = "cargo build --target wasm32-wasi --release"
+workdir = "profile-api"
+watch = ["src/**/*.rs", "Cargo.toml"]
