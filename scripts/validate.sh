@@ -19,10 +19,6 @@ curl  -v -X PUT $scheme://$host/api/profile/justin \
       -d @update-profile.json
 echo  "------------------------------------------------------------"; echo
 
-echo  "Fetching the profile"
-curl  -v GET $scheme://$host/api/profile/justin
-echo  "------------------------------------------------------------"; echo
-
 echo  "Deleting profile"
 curl  -v -X DELETE $scheme://$host/api/profile/justin
 echo  "------------------------------------------------------------"; echo

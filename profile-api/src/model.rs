@@ -1,10 +1,12 @@
+use std::collections::HashMap;
+
 use anyhow::{anyhow, Result, Ok};
 use serde::{Serialize, Deserialize};
 use spin_sdk::http::HeaderValue;
 
-use spin_sdk::mysql::{ParameterValue, Decode, Row, Connection};
+use spin_sdk::pg::{self as db, Decode, ParameterValue, Row};
 
-use crate::utils::get_last_param_from_route;
+use crate::utils::{get_last_param_from_route, get_column_lookup};
 
 fn as_param<'a>(value: &Option<String>) -> Option<ParameterValue> {
     match value {
@@ -42,10 +44,10 @@ impl Profile {
         Ok(serde_json::from_slice(&b)?)
     }
 
-    fn from_row(row: &Row) -> Result<Self> {
-        let id = String::decode(&row[0]).ok();
-        let handle = String::decode(&row[1])?;
-        let avatar = String::decode(&row[2]).ok();
+    fn from_row(row: &Row, columns: &HashMap<&str, usize>) -> Result<Self> {
+        let id = String::decode(&row[columns["id"]]).ok();
+        let handle = String::decode(&row[columns["handle"]])?;
+        let avatar = String::decode(&row[columns["avatar"]]).ok();
         Ok(Profile {
             id,
             handle,
@@ -59,10 +61,10 @@ impl Profile {
             ParameterValue::Str((&self.handle).parse()?),
             as_param(&self.avatar).unwrap_or_else(|| ParameterValue::DbNull)
         ];
-        let db_connection = Connection::open(db_url)?;
-        Connection::execute(
+        let db_connection = db::Connection::open(db_url)?;
+        db::Connection::execute(
             &db_connection,
-            "INSERT INTO profiles (id, handle, avatar) VALUES (?, ?, ?)",
+            "INSERT INTO profiles (id, handle, avatar) VALUES ($1, $2, $3)",
             &params
         )?;
         Ok(())
@@ -70,20 +72,22 @@ impl Profile {
 
     pub(crate) fn get_by_handle(handle: &str, db_url: &str) -> Result<Profile> {
         let params = vec![ParameterValue::Str(handle.to_string())];
-        let db_connection = Connection::open(db_url)?;
-        let row_set = Connection::query(
+        let db_connection = db::Connection::open(db_url)?;
+        let row_set = db::Connection::query(
             &db_connection,
-            "SELECT id, handle, avatar from profiles WHERE handle=?",
+            "SELECT id, handle, avatar from profiles WHERE handle=$1",
             &params
         )?;
+        let columns = get_column_lookup(&row_set.columns);
+
         match row_set.rows.first() {
-            Some(row) => Profile::from_row(row),
+            Some(row) => Profile::from_row(row, &columns),
             None => Err(anyhow!("Profile not found for handle '{:?}'", handle))
         }
     }
 
     pub(crate) fn update(&self, db_url: &str) -> Result<()> {
-        let db_connection = Connection::open(db_url)?;
+        let db_connection = db::Connection::open(db_url)?;
         match &self.id {
             Some(id) => {
                 let params = vec![
@@ -91,41 +95,49 @@ impl Profile {
                     as_nullable_param(&self.avatar),
                     ParameterValue::Str(id.to_string()),
                 ];
-                Connection::execute(
+                db::Connection::execute(
                     &db_connection,
-                    "UPDATE profiles SET handle=?, avatar=? WHERE id=?",
+                    "UPDATE profiles SET handle=$1, avatar=$2 WHERE id=$3",
                     &params
-                )?
+                )?;
             },
             None => {
                 let params = vec![
                     as_nullable_param(&self.avatar),
                     ParameterValue::Str(self.handle.to_string())
                 ];
-                Connection::execute(
+                db::Connection::execute(
                     &db_connection,
-                    "UPDATE profiles SET avatar=? WHERE handle=?",
+                    "UPDATE profiles SET avatar=$1 WHERE handle=$2",
                     &params
-                )?
+                )?;
             }
         }
         Ok(())
     }
 
     pub(crate) fn delete(&self, db_url: &str) -> Result<()> {
-        let db_connection = Connection::open(db_url)?;
+        let db_connection = db::Connection::open(db_url)?;
         match &self.id {
             Some(id) => {
                 let params = vec![
                     ParameterValue::Str(id.to_string())
                 ];
-                Connection::execute(&db_connection, "DELETE FROM profiles WHERE id=?", &params)?
+                db::Connection::execute(
+                    &db_connection,
+                    "DELETE FROM profiles WHERE id=$1",
+                    &params
+                )?;
             },
             None => {
                 let params = vec![
                     ParameterValue::Str(self.handle.to_string())
                 ];
-                Connection::execute(&db_connection, "DELETE FROM profiles WHERE handle=?", &params)?
+                db::Connection::execute(
+                    &db_connection,
+                    "DELETE FROM profiles WHERE handle=$1",
+                    &params
+                )?;
             }
         }
         Ok(())
